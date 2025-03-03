@@ -38,6 +38,47 @@ export async function mealRoutes(app: FastifyInstance) {
     return { meal }
   })
 
+  app.get('/metrics', { preHandler: [checkSessionId] }, async (req, rep) => {
+    const { sessionId } = req.cookies
+
+    const dietCompliantMeals = await knex('meals')
+      .where({
+        session_id: sessionId,
+        diet_compliant: true,
+      })
+      .count('id', { as: 'total' })
+      .first()
+
+    const dietNotCompliantMeals = await knex('meals')
+      .where({
+        session_id: sessionId,
+        diet_compliant: false,
+      })
+      .count('id', { as: 'total' })
+      .first()
+
+    const totalMeals = await knex('meals')
+      .where({
+        session_id: sessionId,
+      })
+      .orderBy('date', 'desc')
+
+    let bestSequence = 0
+    let currentSequence = 0
+    totalMeals.forEach((meal) => {
+      meal.diet_compliant ? currentSequence++ : (currentSequence = 0)
+      bestSequence =
+        currentSequence > bestSequence ? currentSequence : bestSequence
+    })
+
+    return rep.send({
+      totalMetals: totalMeals.length,
+      dietCompliantTotal: dietCompliantMeals?.total,
+      dietNotCompliantMeals: dietNotCompliantMeals?.total,
+      bestSequence,
+    })
+  })
+
   app.post('/', async (req, rep) => {
     const createMealBodySchema = z.object({
       name: z.string(),
@@ -69,5 +110,60 @@ export async function mealRoutes(app: FastifyInstance) {
     })
 
     return rep.status(201).send()
+  })
+
+  app.put('/:id', { preHandler: [checkSessionId] }, async (req, rep) => {
+    const { sessionId } = req.cookies
+
+    const getMealParamSchema = z.object({
+      id: z.string().uuid(),
+    })
+
+    const { id } = getMealParamSchema.parse(req.params)
+
+    const createMealBodySchema = z.object({
+      name: z.string(),
+      description: z.string(),
+      diet_compliant: z.boolean(),
+    })
+
+    const { name, description, diet_compliant } = createMealBodySchema.parse(
+      req.body,
+    )
+
+    const updatedMeal = await knex('meals')
+      .where({
+        session_id: sessionId,
+        id,
+      })
+      .update(
+        {
+          name,
+          description,
+          diet_compliant,
+        },
+        ['id', 'name'],
+      )
+
+    return { updatedMeal }
+  })
+
+  app.delete('/:id', { preHandler: [checkSessionId] }, async (req, rep) => {
+    const { sessionId } = req.cookies
+
+    const getMealParamSchema = z.object({
+      id: z.string().uuid(),
+    })
+
+    const { id } = getMealParamSchema.parse(req.params)
+
+    const deletedMeal = await knex('meals')
+      .where({
+        session_id: sessionId,
+        id,
+      })
+      .del(['id', 'name'])
+
+    return { deletedMeal }
   })
 }
